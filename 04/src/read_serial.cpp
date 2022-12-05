@@ -7,10 +7,15 @@ char serial_buffer[256];
 int iserial_buffer = 0;
 int line_num = 0;
 uint32_t t_start = 0;
+uint32_t char_count = 0;
 
 String lines[MAX_INPUT_LINES];
 
 int line_index[MAX_INPUT_LINES];
+
+bool state_bof = false;
+bool state_eof = false;
+bool state_eol = false;
 
 void sort_lines()
 {
@@ -49,6 +54,7 @@ void start_of_file()
     iserial_buffer = 0;
     line_num = 0;
     serial_buffer[0] = '\0';
+    char_count = 0;
     t_start = millis();
 }
 
@@ -89,17 +95,16 @@ int count_overlaps()
             String p1 = lines[i].substring(0,idelim);
             String p2 = lines[i].substring(idelim+1);
 
-            Serial.print(p1);
-            Serial.print(" + ");
-            Serial.print(p2);
+            //Serial.print(p1);
+            //Serial.print(" + ");
+            //Serial.print(p2);
 
             auto r1 = parse_range(p1);
             auto r2 = parse_range(p2);
 
             if (r1.overlaps(r2)) c++;
 
-            Serial.printf(" => %i ~ %i, %i ~ %i, c=%u\n", r1.a, r1.b, r2.a, r2.b, c );
-
+            Serial.printf("%i: %i - %i, %i - %i, count=%u\n", i+1, r1.a, r1.b, r2.a, r2.b, c );
         }
     }
     Serial.printf("OVERLAPS = %u\n",c);
@@ -108,19 +113,24 @@ int count_overlaps()
 
 void end_of_file()
 {
+    uint32_t time_ms = millis() - t_start;
+    Serial.printf("PROCESSING: CHARS %lu, TIME %lums\n", char_count, time_ms );
+
     //sort_lines();
     //dump_lines();
     count_overlaps();
 
     uint32_t heap = ESP.getFreeHeap();
-    uint32_t time_ms = millis() - t_start;
+    time_ms = millis() - t_start;
     Serial.printf("END: %u lines read : HEAP %lu : TIME %lums\n", line_num, heap, time_ms );
 }
 
 void process_line()
 {
-    Serial.print(line_num+1);
+    Serial.print(line_num);
     Serial.print(": ");
+    //if (line_num)
+    //    Serial.println(lines[line_num-1]);
     Serial.println(serial_buffer);
 }
 
@@ -129,22 +139,27 @@ void read_serial()
     while (Serial.available() > 0)
     {
         int ch = Serial.read();
+        char_count++;
 
         // Serial.write(ch);
 
         if (ch == 1) // start of file
         {
-            start_of_file();
+            // start_of_file();
+            state_bof = true;
+            return;
         }
         else if (ch == 4) // end of file
         {
-            end_of_file();
+            // end_of_file();
+            state_eof = true;
+            return;
         }
         else if (ch == '\n')
         {
             serial_buffer[iserial_buffer] = '\0';
 
-            process_line();
+            // process_line();
             
             lines[line_num] = serial_buffer;
             iserial_buffer = 0;
@@ -154,6 +169,9 @@ void read_serial()
                 Serial.println("ERROR: line buffer full.");
                 line_num = 0;
             }
+
+            state_eol = true;
+            return;
         }
         else if (ch >= ' ')
         {
